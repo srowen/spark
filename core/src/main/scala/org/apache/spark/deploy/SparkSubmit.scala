@@ -952,12 +952,14 @@ private[spark] object SparkSubmitUtils {
    * @return a comma-delimited list of paths for the dependencies
    */
   def resolveDependencyPaths(
-      artifacts: Array[AnyRef],
+      artifacts: Array[Artifact],
       cacheDirectory: File): String = {
     artifacts.map { artifactInfo =>
-      val artifact = artifactInfo.asInstanceOf[Artifact].getModuleRevisionId
+      val artifact = artifactInfo.getModuleRevisionId
+      val classifier =
+        Option(artifactInfo.getExtraAttribute("classifier")).map("-" + _).getOrElse("")
       cacheDirectory.getAbsolutePath + File.separator +
-        s"${artifact.getOrganisation}_${artifact.getName}-${artifact.getRevision}.jar"
+        s"${artifact.getOrganisation}_${artifact.getName}${classifier}-${artifact.getRevision}.jar"
     }.mkString(",")
   }
 
@@ -967,15 +969,12 @@ private[spark] object SparkSubmitUtils {
       artifacts: Seq[MavenCoordinate],
       ivyConfName: String): Unit = {
     artifacts.foreach { mvn =>
-      val ri = ModuleRevisionId.newInstance(mvn.groupId, mvn.artifactId, mvn.version)
+      val extraAttributes =
+        mvn.classifier.map(c => Collections.singletonMap("classifier", c)).orNull
+      val ri = ModuleRevisionId.newInstance(
+        mvn.groupId, mvn.artifactId, mvn.version, extraAttributes)
       val dd = new DefaultDependencyDescriptor(ri, false, false)
       dd.addDependencyConfiguration(ivyConfName, ivyConfName + "(runtime)")
-      if (mvn.classifier.isDefined) {
-        val typeExt = mvn.packaging.getOrElse("jar")
-        dd.addDependencyArtifact(ivyConfName, new DefaultDependencyArtifactDescriptor(
-          dd, mvn.artifactId, typeExt, typeExt, null,
-          Collections.singletonMap("classifier", mvn.classifier.get)))
-      }
       // scalastyle:off println
       printStream.println(s"${dd.getDependencyId} added as a dependency")
       // scalastyle:on println
@@ -1163,9 +1162,10 @@ private[spark] object SparkSubmitUtils {
         // retrieve all resolved dependencies
         ivy.retrieve(rr.getModuleDescriptor.getModuleRevisionId,
           packagesDirectory.getAbsolutePath + File.separator +
-            "[organization]_[artifact]-[revision].[ext]",
+            "[organization]_[artifact](-[classifier])-[revision].[ext]",
           retrieveOptions.setConfs(Array(ivyConfName)))
-        resolveDependencyPaths(rr.getArtifacts.toArray, packagesDirectory)
+        resolveDependencyPaths(
+          rr.getArtifacts.toArray.map(_.asInstanceOf[Artifact]), packagesDirectory)
       } finally {
         System.setOut(sysOut)
       }
