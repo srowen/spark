@@ -969,16 +969,20 @@ private[spark] object SparkSubmitUtils {
       artifacts: Seq[MavenCoordinate],
       ivyConfName: String): Unit = {
     artifacts.foreach { mvn =>
-      val extraAttributes =
-        mvn.classifier.map(c => Collections.singletonMap("classifier", c)).orNull
       val ri = ModuleRevisionId.newInstance(
-        mvn.groupId, mvn.artifactId, mvn.version, extraAttributes)
+        mvn.groupId, mvn.artifactId, mvn.version)
       val dd = new DefaultDependencyDescriptor(ri, false, false)
       dd.addDependencyConfiguration(ivyConfName, ivyConfName + "(runtime)")
       // scalastyle:off println
       printStream.println(s"${dd.getDependencyId} added as a dependency")
       // scalastyle:on println
       md.addDependency(dd)
+      if (mvn.classifier.isDefined) {
+        val typeExt = mvn.packaging.getOrElse("jar")
+        dd.addDependencyArtifact(ivyConfName, new DefaultDependencyArtifactDescriptor(
+          dd, mvn.artifactId, typeExt, typeExt, null,
+          Collections.singletonMap("classifier", mvn.classifier.get)))
+      }
     }
   }
 
